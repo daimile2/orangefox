@@ -1,0 +1,107 @@
+diff --git a/gui/action.cpp b/gui/action.cpp
+index 293dd164..e3cd7bb5 100755
+--- a/gui/action.cpp
++++ b/gui/action.cpp
+@@ -639,6 +639,32 @@ int GUIAction::doAction(Action action)
+   return -1;
+ }
+ 
++int GUIAction::RunDirect(const std::string& function,
++			 const std::string& arg)
++{
++  LOGINFO("RunDirect: function='%s', arg='%s', registered_actions=%lu\n",
++      function.c_str(), arg.c_str(),
++      (unsigned long)mf.size());
++
++  /*
++   * Must not pass nullptr:
++   * the GUIAction constructor returns early on nullptr, before the mf
++   * action table is initialized. Use an empty element node so that the
++   * constructor completes the action table initialization.
++   */
++  rapidxml::xml_document<> doc;
++  rapidxml::xml_node<>* node =
++      doc.allocate_node(rapidxml::node_element);
++
++  GUIAction action(node);
++
++  Action direct_action;
++  direct_action.mFunction = function;
++  direct_action.mArg = arg;
++
++  return action.doAction(direct_action);
++}
++
+ void GUIAction::operation_start(const string operation_name)
+ {
+ 	LOGINFO("operation_start: '%s'\n", operation_name.c_str());
+diff --git a/gui/gui.cpp b/gui/gui.cpp
+index e03fe91f..46cd0061 100644
+--- a/gui/gui.cpp
++++ b/gui/gui.cpp
+@@ -36,6 +36,7 @@
+ #include <sys/mount.h>
+ #include <time.h>
+ #include <unistd.h>
++#include <thread>
+ 
+ extern "C"
+ {
+@@ -632,7 +633,40 @@ static void ors_command_read()
+ 			unlink(ORS_OUTPUT_FILE);
+ 			return;
+ 		}
+-		if (DataManager::GetIntValue("tw_busy") != 0) {
++		// Disable ADB: directly calls GUIAction::adb("disable")
++		if (strcmp(command, "action adb disable") == 0) {
++			LOGINFO("Direct UI action command received: '%s'\n", command);
++			gui_set_FILE(orsout);
++			GUIAction::RunDirect("adb", "disable");
++			ors_command_done();
++		}
++		// Start sideload: directly calls GUIAction::adbsideload("")
++		// The function blocks until sideload ends, so only it is placed
++		// in a background thread; no GUI page is entered or switched.
++		else if (strcmp(command, "action adbsideload") == 0) {
++			LOGINFO("Direct UI action command received: '%s'\n", command);
++			gui_set_FILE(orsout);
++
++			std::thread([]() {
++				GUIAction::RunDirect("adbsideload", "");
++			}).detach();
++
++			// The command has been dispatched; close this CLI output
++			// immediately and resume listening, so that a following
++			// cancel command can come in.
++			ors_command_done();
++		}
++		// Cancel sideload: directly calls GUIAction::adbsideloadcancel("")
++		// Must be placed before the tw_busy check, otherwise it would be
++		// rejected while sideload is in progress.
++		else if (strcmp(command, "action adbsideloadcancel") == 0) {
++			LOGINFO("Direct UI action command received: '%s'\n", command);
++			gui_set_FILE(orsout);
++			GUIAction::RunDirect("adbsideloadcancel", "");
++			ors_command_done();
++		}
++		// Other regular CLI commands keep the original busy state check.
++		else if (DataManager::GetIntValue("tw_busy") != 0) {
+ 			fputs("Failed, operation in progress\n", orsout);
+ 			LOGINFO("Command cannot be performed, operation in progress.\n");
+ 			fclose(orsout);
+diff --git a/gui/objects.hpp b/gui/objects.hpp
+index bdf35bd6..9fed2e0a 100644
+--- a/gui/objects.hpp
++++ b/gui/objects.hpp
+@@ -323,6 +323,11 @@ public:
+ 
+ 	int doActions();
+ 
++	// Run an original action function directly from the command line,
++	// without going through any UI control
++	static int RunDirect(const std::string& function,
++			     const std::string& arg);
++
+ protected:
+ 	class Action
+ 	{

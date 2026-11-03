@@ -1,0 +1,31 @@
+#!/system/bin/sh
+
+DEVICE="/dev/block/by-name/userdata"
+MOUNTPOINT="/ios"
+
+case "$1" in
+    mount)
+        shift
+
+        if mount | grep -q " on ${MOUNTPOINT} "; then
+            echo "iOSRoot is already mounted on ${MOUNTPOINT}"
+            exit 0
+        fi
+
+        mkdir -p "$MOUNTPOINT"
+        hfsfuse "$@" -o ro "$DEVICE" "$MOUNTPOINT" &&
+            echo "iOSRoot mounted read-only on ${MOUNTPOINT}"
+        ;;
+
+    umount|unmount)
+        umount "$MOUNTPOINT" &&
+            echo "iOSRoot unmounted from ${MOUNTPOINT}"
+        ;;
+
+    *)
+        echo "Usage:"
+        echo "  ios-root mount [--force]"
+        echo "  ios-root umount"
+        exit 1
+        ;;
+esac

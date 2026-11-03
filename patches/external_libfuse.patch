@@ -1,0 +1,12 @@
+diff --git a/Android.bp b/Android.bp
+index e43cdf7..8951469 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -66,6 +66,7 @@ cc_defaults {
+ 
+ cc_library {
+     name: "libfuse",
++    recovery: true,
+     defaults: [
+         "libfuse_default_flags",
+     ],
